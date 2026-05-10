@@ -24,13 +24,13 @@ so `discover_videos()` just picks up whichever subtrees currently exist —
 you can run extraction once on bonafide, delete it, unpack attack, and
 run again. The manifest is append-only so the two passes accumulate.
 
-Subject split (deterministic, by wearer letter — splitting this way keeps
-the same person from leaking between train and test even though the
-dataset doesn't ship a canonical split):
+Subject split (deterministic, by wearer letter). Attack clips only exist
+for subjects A-F, so the split is designed to give attacks in every
+partition:
 
-    train: A B C D E F G H I    (9)
-    devel: J K                  (2)
-    test:  L M N                (3)
+    train: A B       G H I   (attack: A-B  bonafide: A-B + G-I)
+    devel: C D       J K     (attack: C-D  bonafide: C-D + J-K)
+    test:  E F       L M N   (attack: E-F  bonafide: E-F + L-N)
 """
 
 from __future__ import annotations
@@ -66,10 +66,16 @@ BONA_RE = re.compile(r"^([A-Z])_gen(?:glasses)?_i(\d+)_(\d+)\.h5$")
 #   STAND: Mask_atk_{wearer}{mask}_i{illum}_{seq}.h5      e.g. Mask_atk_A1_i0_001.h5
 ATK_RE = re.compile(r"^(?:[A-Z]|Mask)_atk_([A-Z])(\d+)_i(\d+)_(\d+)\.h5$")
 
-# CSMAD is a held-out cross-dataset test corpus — all frames go to the test
-# split regardless of subject. Attack files only cover subjects A-F, so a
-# letter-based split would leave devel/test with zero attacks.
-CSMAD_SPLIT = "test"
+# Subject-disjoint split. Attack clips only exist for A-F, so we distribute
+# those six subjects across all three partitions to ensure each has attacks.
+SUBJECT_SPLIT: dict[str, str] = {
+    "A": "train", "B": "train",
+    "C": "devel",  "D": "devel",
+    "E": "test",   "F": "test",
+    "G": "train", "H": "train", "I": "train",
+    "J": "devel",  "K": "devel",
+    "L": "test",   "M": "test",  "N": "test",
+}
 
 
 @dataclass
@@ -95,7 +101,7 @@ def _discover_bonafide() -> list[CsmadVideo]:
             tqdm.write(f"WARN: CSMAD bonafide filename does not match pattern: {h5.name}")
             continue
         subj, illum, seq = m.groups()
-        out.append(CsmadVideo(h5, subj, illum, seq, "bonafide", 0, CSMAD_SPLIT))
+        out.append(CsmadVideo(h5, subj, illum, seq, "bonafide", 0, SUBJECT_SPLIT[subj]))
     return out
 
 
@@ -114,7 +120,7 @@ def _discover_attack() -> list[CsmadVideo]:
                 tqdm.write(f"WARN: CSMAD attack filename does not match pattern: {h5.name}")
                 continue
             subj, _mask_idx, illum, seq = m.groups()
-            out.append(CsmadVideo(h5, subj, illum, seq, pose, 1, CSMAD_SPLIT))
+            out.append(CsmadVideo(h5, subj, illum, seq, pose, 1, SUBJECT_SPLIT[subj]))
     return out
 
 

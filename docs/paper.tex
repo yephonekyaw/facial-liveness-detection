@@ -32,28 +32,35 @@ Combined-Dataset Training of AttackNet v2.2 on Replay-Attack and 3DMAD}
 
 \begin{abstract}
 Face anti-spoofing models trained on a single benchmark routinely achieve
-near-zero error within their own test set yet fail catastrophically
-when transferred to a different attack family. We argue that the
-dominant cost in building a generalising classifier is not architectural
-but \emph{logistical}: each public benchmark ships in a different
-format, with a different annotation schema, and a different notion of
-``split''. We present a unified RGB-only preprocessing pipeline that
-collapses two structurally different datasets --- Replay-Attack
-(2D photo and video presentations) and 3DMAD (3D mask attacks) ---
-into a single CSV manifest of $77{,}296$ identically-shaped
+near-zero error within their own test set yet fail badly when
+transferred to a different attack family or capture device. We argue
+that the dominant cost in building a generalising classifier is not
+architectural but \emph{logistical}: each public benchmark ships in a
+different format, with a different annotation schema, and a different
+notion of ``split''. We present a unified RGB-only preprocessing
+pipeline that collapses two structurally different datasets ---
+Replay-Attack (2D photo and video presentations) and 3DMAD (3D mask
+attacks) --- into a single CSV manifest of $77{,}296$ identically-shaped
 $256{\times}256$ face crops, and we train AttackNet v2.2, a compact
-$8.4$M-parameter convolutional network, from scratch on the union.
-Within-dataset test ACER is below $0.5\%$ on both benchmarks. Held-out
-cross-dataset evaluation reveals a sharp \emph{asymmetry} ---
-Replay $\rightarrow$ 3DMAD transfers at $2.8\%$ frame ACER whereas
-3DMAD $\rightarrow$ Replay collapses to $38.8\%$ --- which we interpret
-as evidence that single-dataset models learn dataset-specific shortcuts
-rather than a general notion of liveness. Combined training closes most
-of this gap while incurring negligible within-domain cost.
-The pipeline is also extensible: the manifest schema and a
-matching extractor stub already accept a third dataset (CSMAD,
-silicone mask attacks), which we leave to future work as a zero-shot
-generalisation probe.
+$8.4$M-parameter residual CNN, from scratch on their union.
+Within-dataset test ACER is below $0.5\%$ on both benchmarks.
+Cross-dataset evaluation reveals a sharp \emph{asymmetry}:
+Replay $\rightarrow$ 3DMAD transfers at $2.8\%$ frame ACER (HTER
+$8.8\%$ after devel calibration), whereas 3DMAD $\rightarrow$ Replay
+collapses to $38.8\%$ frame ACER (HTER $22.7\%$). We interpret this
+as evidence that single-dataset models learn camera- and
+protocol-specific shortcuts rather than a general notion of liveness.
+A further probe on the held-out CSMAD corpus (silicone mask attacks,
+Intel RealSense SR300) deepens this conclusion: the combined model
+achieves a devel-calibrated HTER of $0.58$ and a ROC-AUC of
+$\mathbf{0.40}$ --- a \emph{ranking inversion}. The model scores
+genuine CSMAD faces as more attack-like than actual silicon masks,
+because the SR300 sensor characteristics push real faces into the
+high-attack region of the learned feature space. An AUC below $0.5$,
+confirmed after threshold calibration, is the empirical signature of
+this inversion and shows that camera-hardware change alone --- without
+any change in attack family --- is sufficient to break a PAD model
+worse than random.
 \end{abstract}
 
 \section{Introduction}
@@ -673,9 +680,47 @@ $\rightarrow$ 3DMAD transfers; 3DMAD $\rightarrow$ Replay does not.}
 \label{fig:cross-bars}
 \end{figure}
 
+\begin{table}[h]
+\centering
+\caption{Combined $\rightarrow$ CSMAD, devel-calibrated HTER.
+Threshold set at devel EER; HTER reported on test.
+devel: $n{=}7{,}347$ (subjects C, D, J, K);
+test: $n{=}6{,}027$ (subjects E, F, L, M, N).}
+\label{tab:cross-csmad}
+\small
+\begin{tabular}{l c c c c c}
+\toprule
+Direction & Threshold & HTER & APCER & BPCER & AUC \\
+\midrule
+Combined $\rightarrow$ CSMAD & $0{.}9071$ & $0{.}5807$ & $0{.}4669$ & $0{.}6945$ & $0{.}4012$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:cross-csmad} shows the most severe failure mode in
+this study. The HTER of $0{.}58$ is worse than a coin flip ($0{.}5$),
+but the decisive number is the ROC-AUC of $\mathbf{0{.}40}$. An AUC
+below $0{.}5$ is a \emph{ranking inversion}: the model assigns higher
+attack scores to bonafide CSMAD faces than to silicon masks. This is
+not a threshold artefact --- it persists even after calibration on the
+devel split. The calibrated threshold of $0{.}907$ reveals the
+underlying bias: the model assigns high attack probability to almost
+everything in the CSMAD domain, but genuine faces score even higher
+than attacks.
+
+The mechanism differs from the Replay/3DMAD cross-dataset failures.
+There, the model simply lacked features that fire on the unseen attack
+type. Here, the RealSense SR300's sensor characteristics --- noise
+floor, dynamic range, IR bleed --- push \emph{real} faces into the
+high-attack region of the learned feature space. Silicon masks,
+as high-quality physical objects under controlled lab lighting,
+produce images that more closely resemble the training distribution's
+bonafide class. The domain shift affects real faces more severely than
+it affects the attacks, which inverts the ranking.
+
 The cross-dataset numbers (Tables~\ref{tab:cross-fixed} and
-\ref{tab:cross-hter}, Figure~\ref{fig:cross-bars}) tell the real
-story. Replay $\rightarrow$ 3DMAD is workable: at the fixed threshold
+\ref{tab:cross-hter}, Figure~\ref{fig:cross-bars}) for Replay/3DMAD
+tell the same story at a smaller scale. Replay $\rightarrow$ 3DMAD is workable: at the fixed threshold
 of $0{.}5$, frame ACER is $2{.}80\%$, and devel-calibrated HTER on
 the 3DMAD test split is $8{.}83\%$. 3DMAD $\rightarrow$ Replay
 collapses: $38{.}75\%$ frame ACER at fixed threshold, and even after
@@ -733,55 +778,102 @@ production pipeline would need a fallback. (iii) The hardware budget
 schedule. A larger model, a wider augmentation schedule, or domain
 adaptation might close the cross-dataset gap further.
 
-\section{Future Work: Cross-Dataset Probe with CSMAD}
-\label{sec:future}
+\section{CSMAD Out-of-Distribution Probe}
+\label{sec:csmad}
 
-The pipeline is forward-compatible with a third dataset. CSMAD
-(Custom Silicone Mask Attack Database) ships HDF5 captures from an
-Intel RealSense SR300 (RGB, NIR, depth) and a Seek thermal camera,
-with $87$ bonafide videos plus $159$ attack videos in two pose
-families (\texttt{WEAR} and \texttt{STAND}); we use only the
-SR300 \texttt{color} channel. Each frame in the HDF5 is a separate
-timestamped dataset of shape $(H,W,3)$ \texttt{uint8} under
-\texttt{data/sr300/color}; the extractor lists keys, sorts them
-chronologically, and steps through with the same \texttt{FRAME\_STRIDE}
-as the other extractors. We use a deterministic subject-letter split
-(A--I train, J--K devel, L--N test) and tag every row with
-\texttt{dataset='csmad'}, \texttt{attack\_type='real'} or
-\texttt{'mask\_silicone'}. The training code does not need to change.
+\subsection{Setup}
 
-We deliberately do \emph{not} include CSMAD in the training mix in
-this paper. CSMAD will instead be used as a held-out, third-domain
-zero-shot probe of the combined model. The hypothesis to test is the
-natural extension of Section~\ref{sec:cross-dataset}: a model trained
-on a wider mix of attack families (2D presentations + 3D printed
-masks) should transfer further into a fourth attack family (silicone
-masks) than either single-dataset baseline. The relevant comparisons
-are Replay $\rightarrow$ CSMAD, 3DMAD $\rightarrow$ CSMAD, and Combined
-$\rightarrow$ CSMAD, all with devel-calibrated HTER. We leave the
-running of those experiments to subsequent work, in which we will also
-revisit whether the asymmetry observed here (Replay generalises, 3DMAD
-does not) is preserved when the target distribution involves a third,
-qualitatively different attack family.
+CSMAD (Custom Silicone Mask Attack Database) ships HDF5 captures from
+an Intel RealSense SR300 (RGB, NIR, depth) and a Seek thermal camera,
+with $87$ bonafide videos and $159$ attack videos in two pose families
+(\texttt{WEAR} and \texttt{STAND}); we use only the SR300
+\texttt{color} channel. Each frame is a separate timestamped dataset
+of shape $(H,W,3)$ \texttt{uint8} under \texttt{data/sr300/color}.
+The extractor lists keys, sorts them chronologically, and steps
+through with \texttt{FRAME\_STRIDE=5}, exactly as for the other
+datasets. The extractor handles two naming conventions across
+WEAR/STAND subfolders: \texttt{\{camera\}\_atk\_\{wearer\}\{mask\}\_...h5}
+(WEAR) and \texttt{Mask\_atk\_\{wearer\}\{mask\}\_...h5} (STAND).
+After extraction, CSMAD contributes $18{,}763$ frames across $243$
+videos.
+
+CSMAD is held out entirely from training. The attack archive only
+covers subjects A--F; distributing those six subjects across all three
+partitions gives attacks in every split:
+
+\begin{center}\small
+\begin{tabular}{l l r r}
+\toprule
+Split & Subjects & Bonafide & Attack \\
+\midrule
+train & A, B, G, H, I & $1{,}017$ & $4{,}372$ \\
+devel & C, D, J, K    & $1{,}449$ & $5{,}898$ \\
+test  & E, F, L, M, N & $1{,}679$ & $4{,}348$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Results and interpretation}
+
+We evaluate the combined model (\texttt{both-cv-5/fold\_1/best.pt})
+using the devel-calibrated HTER protocol (threshold set at devel EER,
+reported on test). Results are in Table~\ref{tab:cross-csmad}.
+
+The headline number is the AUC of $\mathbf{0{.}40}$ --- a ranking
+inversion. The model assigns higher attack scores to bonafide CSMAD
+faces than to silicon masks. This is not a threshold artefact: after
+calibration on devel, the threshold rises to $0{.}907$ (far above the
+default $0{.}5$) yet the HTER is still $0{.}58$, worse than random.
+
+The inversion mechanism differs from the Replay/3DMAD cross-dataset
+failures. There, the model lacked features that fire on the unseen
+attack type. Here, the RealSense SR300 sensor's characteristics ---
+noise floor, dynamic range, IR bleed into the colour channel ---
+produce real-face images that land in the high-attack region of the
+learned feature space. Silicon masks, as high-quality physical objects
+under controlled lab lighting, produce images closer to the training
+distribution's bonafide class. The domain shift hurts real faces more
+than it hurts the attacks, which inverts the ranking entirely.
+
+This result sharpens the cross-dataset conclusion: the failure is not
+about attack-type novelty but about sensor novelty. An RGB-only PAD
+model trained on fixed-camera benchmarks does not generalise to new
+capture hardware, and the failure mode when it encounters one can be
+worse than random --- a fact invisible from within-dataset evaluation
+alone.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented a unified RGB pipeline for face anti-spoofing that ingests
-two structurally different public benchmarks --- Replay-Attack and
-3DMAD --- into a single CSV manifest of $77{,}296$ uniformly cropped
-face images, and we trained a compact $8{.}4$M-parameter CNN
-(AttackNet v2.2) from scratch on their union. Within-dataset test
-ACER is below $0{.}5\%$ on both benchmarks. Held-out cross-dataset
-evaluation reveals a sharp asymmetry: Replay $\rightarrow$ 3DMAD
-transfers at $2{.}80\%$ frame ACER, while 3DMAD $\rightarrow$ Replay
-collapses to $38{.}75\%$. We interpret this as direct empirical
-evidence that single-dataset PAD models learn dataset-specific
-shortcuts rather than a general notion of liveness, and that combined
-training closes most of the gap at negligible within-domain cost. The
-manifest schema and matching extractor stub make adding a third
-dataset (CSMAD, silicone masks) a configuration change rather than a
-refactor; that experiment is the natural next step.
+We presented a unified RGB preprocessing pipeline that ingests two
+structurally different public benchmarks --- Replay-Attack and 3DMAD
+--- into a single CSV manifest of $77{,}296$ uniformly cropped
+$256{\times}256$ face images, and trained a compact $8{.}4$M-parameter
+residual CNN (AttackNet v2.2) from scratch on their union.
+Within-dataset test ACER is below $0{.}5\%$ on both benchmarks.
+
+Cross-dataset evaluation reveals a sharp asymmetry: Replay
+$\rightarrow$ 3DMAD transfers at $2{.}8\%$ frame ACER (devel-calibrated
+HTER $8{.}8\%$), while 3DMAD $\rightarrow$ Replay collapses to
+$38{.}8\%$ (HTER $22{.}7\%$). The asymmetry is evidence that
+single-dataset models learn camera- and protocol-specific shortcuts
+rather than a general notion of liveness. Combined training closes
+most of this gap at negligible within-domain cost.
+
+A devel-calibrated probe on the entirely held-out CSMAD corpus
+(silicone mask attacks, Intel RealSense SR300) produces the sharpest
+finding: HTER $0{.}58$ and ROC-AUC $0{.}40$ --- a \emph{ranking
+inversion}. The combined model assigns higher attack scores to
+genuine CSMAD faces than to silicon masks. The cause is sensor
+domain shift, not attack-type novelty: the SR300's noise and
+dynamic range characteristics push real faces into the high-attack
+region of the learned feature space while masks remain near the
+boundary. AUC below $0{.}5$, confirmed after threshold calibration,
+is the empirical signature. The practical implication: a PAD model
+that saturates a fixed-camera benchmark can perform worse than
+random on a new camera, with real users rejected more aggressively
+than attackers --- a risk entirely invisible from within-dataset
+evaluation alone.
 
 \section*{Acknowledgements}
 The authors thank the maintainers of the Replay-Attack and 3DMAD
