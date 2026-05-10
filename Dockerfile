@@ -2,24 +2,26 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# uv binary
+# Copy uv binary
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# OpenCV runtime deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 \
-        libglib2.0-0 \
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
         ca-certificates \
-	build-essential \
-    && rm -rf /var/lib/apt/lists/*
+        libgl1 \
+        libglib2.0-0 && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install dependencies first (cache layer)
+# Install dependencies first for better layer caching
 COPY .python-version pyproject.toml uv.lock ./
+
 RUN uv sync --frozen --no-dev
 
-# Application code
+# Copy application source
 COPY src/ ./src/
 COPY configs/ ./configs/
 COPY app.py ./

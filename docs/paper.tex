@@ -15,6 +15,9 @@
 \usepackage{enumitem}
 \usepackage{multirow}
 \usepackage{authblk}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
 
 \graphicspath{{figures/}}
 \hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=black}
@@ -22,8 +25,8 @@
 \title{\bfseries A Unified RGB Pipeline for Face Anti-Spoofing:\\
 Combined-Dataset Training of AttackNet v2.2 on Replay-Attack and 3DMAD}
 
-\author[1]{Author Name}
-\affil[1]{Department of Computer Science, University Name}
+\author[1]{Ye Phone Kyaw}
+\affil[1]{School of Information Technology, King Mongkut's University of Technology Thonburi}
 
 \date{\today}
 
@@ -217,27 +220,45 @@ Field & Description \\
 
 \subsection{Preprocessing Pipeline}
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
-\small
-\renewcommand{\arraystretch}{1.4}
-\begin{tabular}{c}
-\toprule
-Raw input: \texttt{.mov} containers (Replay-Attack) or \texttt{.h5} stacks (3DMAD, CSMAD) \\
-$\Downarrow$ \\
-Dataset-specific extractor; every $5$th frame sampled (\texttt{FRAME\_STRIDE} $= 5$) \\
-$\Downarrow$ \\
-RetinaFace face detector (\texttt{insightface buffalo\_sc}, ONNX, GPU) \\
-$\Downarrow$ \\
-Highest-confidence box $\xrightarrow{\;\times 1.3\;}$ square-pad to longer side $\xrightarrow{\;\text{Lanczos}\;}$ $256{\times}256$ \\
-$\Downarrow$ \\
-JPEG ($q{=}95$) written to \texttt{data/processed/} \quad$+$\quad row appended to \texttt{manifest.csv} \\
-\bottomrule
-\end{tabular}
-\caption{Unified preprocessing pipeline. A single shared detector and a
-fixed crop geometry are applied identically across all three datasets,
-ensuring that the training loop receives a homogeneous input distribution
-regardless of source format.}
+\begin{tikzpicture}[
+    node distance=5mm and 5mm,
+    box/.style={draw, fill=blue!8, rounded corners=3pt,
+                minimum width=3.3cm, minimum height=9mm,
+                font=\small, align=center, inner sep=3pt},
+    arr/.style={-{Latex[length=2mm]}, thick},
+]
+
+%% ---- row 1 (left → right) ----
+\node[box] (raw)    {Raw videos\\\texttt{.mov\,/\,.h5}};
+\node[box, right=of raw]    (frames)  {Frame\\extraction};
+\node[box, right=of frames] (detect)  {RetinaFace\\detection};
+\node[box, right=of detect] (expand)  {Face expansion\\($1{.}3{\times}$)};
+
+%% ---- row 2 (right → left, below row 1) ----
+\node[box, below=of expand]  (square)   {Square\\alignment};
+\node[box, left=of square]   (lanczos)  {Lanczos\\resizing};
+\node[box, left=of lanczos]  (crops)    {$256{\times}256$\\JPEG crops};
+\node[box, left=of crops]    (manifest) {Manifest\\generation};
+
+%% ---- arrows row 1 ----
+\draw[arr] (raw)    -- (frames);
+\draw[arr] (frames) -- (detect);
+\draw[arr] (detect) -- (expand);
+
+%% ---- turn ----
+\draw[arr] (expand) -- (square);
+
+%% ---- arrows row 2 ----
+\draw[arr] (square)  -- (lanczos);
+\draw[arr] (lanczos) -- (crops);
+\draw[arr] (crops)   -- (manifest);
+
+\end{tikzpicture}
+\caption{Unified preprocessing pipeline applied to Replay-Attack and 3DMAD.
+A single face detector and standardised crop geometry are used across all
+datasets to reduce preprocessing-induced domain variation.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -316,30 +337,64 @@ replay / test       & 6{,}000  & 18{,}800 & 24{,}800 & $0.758$ \\
 \end{table}
 
 \textbf{Class balance is a happy accident.} The two datasets are
-imbalanced in opposite directions (Table~\ref{tab:class-distribution}).
-Replay is $\sim$76\% attack at the frame level (300 attack vs.\ 60
-bonafide source videos per split); 3DMAD is $\sim$67\% bonafide
-(sessions 01 and 02 are both real, only session 03 is the mask
-attack). On the union the two imbalances cancel: the train split is
-$16{,}200$ bonafide vs.\ $16{,}196$ attack, near-perfectly balanced
-without any explicit re-weighting. We therefore do \emph{not} use
-weighted sampling for the combined protocol; the single-dataset
+imbalanced in opposite directions (Table~\ref{tab:class-distribution},
+Figure~\ref{fig:class-dist}). Replay is $\sim$76\% attack at the frame
+level (300 attack vs.\ 60 bonafide source videos per split); 3DMAD is
+$\sim$67\% bonafide (sessions 01 and 02 are both real, only session 03
+is the mask attack). On the union the two imbalances cancel: the train
+split is $16{,}200$ bonafide vs.\ $16{,}196$ attack, near-perfectly
+balanced without any explicit re-weighting. We therefore do \emph{not}
+use weighted sampling for the combined protocol; the single-dataset
 baselines retain the raw imbalance, which is the regime they would be
 deployed in anyway.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{class_distribution_per_dataset.png}
+    \caption{Attack ratio per dataset.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{attack_type_breakdown.png}
+    \caption{Frame counts by attack type.}
+\end{subfigure}
+\caption{Class composition of the two training datasets. Replay is
+attack-heavy ($76\%$); 3DMAD is bonafide-heavy ($67\%$). Their union
+is near-perfectly balanced. The right panel shows that Replay
+contributes five distinct attack sub-types whereas 3DMAD provides
+only one, which directly explains the generalisation asymmetry in
+Section~\ref{sec:cross-dataset}.}
+\label{fig:class-dist}
+\end{figure}
 
 \textbf{Quality distributions are dataset-distinctive.} On a stratified
 sample of $5{,}000$ crops we computed four standard image-quality
 metrics (Laplacian variance, RMS contrast, mean brightness, Tenengrad
-gradient magnitude). 3DMAD is uniformly clean and controlled
-(Laplacian $\sigma\!=\!12$); Replay is broader along every axis
-(Laplacian $\sigma\!=\!56$, contrast $\sigma$ $\sim$$2{\times}$ 3DMAD's,
-brightness range pulled down by Replay's adverse-lighting subset).
-A model trained only on 3DMAD has never seen Replay's adverse-lighting
-low-brightness regime; a model trained only on Replay has only seen
-the high-Tenengrad world of screens-and-prints. Combined training is
-what gets us both regimes, and the augmentation schedule
-(Section~\ref{sec:training}) is explicitly chosen to span the union
-of the two operating distributions.
+gradient magnitude). As shown in Figure~\ref{fig:quality}, 3DMAD is
+uniformly clean and controlled (Laplacian $\sigma\!=\!12$); Replay is
+broader along every axis (Laplacian $\sigma\!=\!56$, contrast $\sigma$
+$\sim$$2{\times}$ 3DMAD's, brightness range pulled down by the
+adverse-lighting subset). A model trained only on 3DMAD has never
+encountered Replay's low-brightness, high-noise regime; a model trained
+only on Replay has seen only the high-Tenengrad world of screens and
+prints. Combined training spans both regimes, and the augmentation
+schedule (Section~\ref{sec:training}) is explicitly designed to cover
+their union.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{quality_distributions.png}
+\caption{Distribution of four image-quality metrics across datasets and
+class labels (bonafide / attack). 3DMAD occupies a narrow, controlled
+quality band; Replay is substantially broader. The distributions overlap
+between classes within each dataset, confirming that quality alone is
+not a reliable liveness cue and that a learned texture classifier is
+necessary.}
+\label{fig:quality}
+\end{figure}
 
 \textbf{The two datasets occupy disjoint regions in feature space.}
 We froze a ResNet-18 with ImageNet weights and embedded $\sim$1{,}000
@@ -352,7 +407,7 @@ necessary, not optional; by-dataset, 3DMAD and Replay occupy visibly
 different regions, which is the empirical motivation for combined
 training.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.92\linewidth]{feature_space.png}
 \caption{Frozen ResNet-18 ImageNet features projected with PCA (top)
@@ -361,6 +416,53 @@ vs.\ Replay are visibly separable. The relevant texture cues are not
 represented in ImageNet features --- training from scratch is therefore
 the right call.}
 \label{fig:feature-space}
+\end{figure}
+
+\textbf{Visual inspection reveals dataset-specific texture signatures.}
+Figure~\ref{fig:samples} shows representative face crops from each
+dataset. Replay-Attack crops exhibit moir\'{e} fringing, screen-glare
+reflections, and colour gamut compression characteristic of digital
+presentation attacks; bonafide Replay crops vary considerably in
+brightness due to the adverse-lighting subset. 3DMAD crops are
+uniformly sharp and well-lit, with mask attacks showing subtle seam
+artefacts at the face boundary and an unnatural surface texture under
+the Kinect's infrared fill light. These perceptual differences
+corroborate the quantitative quality gap in Figure~\ref{fig:quality}
+and explain why ImageNet features fail to separate the classes
+(Figure~\ref{fig:feature-space}): the discriminative signal is local
+and high-frequency, not semantic.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{samples_replay_real.png}
+    \caption{Replay-Attack — bonafide}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{samples_replay_attack.png}
+    \caption{Replay-Attack — attack}
+\end{subfigure}
+\\[6pt]
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{samples_3dmad_real.png}
+    \caption{3DMAD — bonafide}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{samples_3dmad_attack.png}
+    \caption{3DMAD — attack (3D mask)}
+\end{subfigure}
+\caption{Representative $256{\times}256$ face crops after preprocessing.
+Replay attacks show screen moir\'{e} and colour compression; 3DMAD
+attacks show mask seams and unnatural surface texture under Kinect
+illumination. Both attack types are perceptually subtle, which motivates
+the texture-sensitive CNN trained from scratch.}
+\label{fig:samples}
 \end{figure}
 
 \section{Method: AttackNet v2.2}
@@ -376,22 +478,8 @@ performs better in this regime.
 
 \subsection{Architecture}
 
-The network is two residual convolutional blocks followed by a wide
-dense head:
-
-\begin{quote}\small
-\textbf{Input}: $(B, 3, 256, 256)$ RGB face crop, scaled to $[0,1]$.
-
-\textbf{Block 1} (in$=3$, out$=16$):
-$\text{Conv}_{3{\times}3}$, BN, ReLU,
-$\text{Conv}_{3{\times}3}$, BN, ReLU, $+\,\text{Conv}_{1{\times}1}$ skip,
-$\text{MaxPool}_{2}$, Dropout2d.
-
-\textbf{Block 2} (in$=16$, out$=32$): same shape, channels $16{\to}32$.
-
-\textbf{Head}: Flatten ($\rightarrow 131{,}072$), Linear$\rightarrow 64$, BN,
-LeakyReLU($\alpha{=}0{.}2$), Dropout, Linear$\rightarrow 1$ (single logit).
-\end{quote}
+The network is two residual convolutional blocks followed by a dense
+classification head, illustrated in Figure~\ref{fig:architecture}.
 
 Three deliberate design choices distinguish v2.2:
 
@@ -409,6 +497,86 @@ Three deliberate design choices distinguish v2.2:
    bottleneck. Standardising activations across the batch lets us use
    a slightly larger effective learning rate without divergence.
 \end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=3.5mm,
+    conv/.style={draw, fill=blue!12, rounded corners=2pt,
+                 minimum width=9cm, minimum height=7mm,
+                 font=\small, align=center},
+    pool/.style={draw, fill=orange!18, rounded corners=2pt,
+                 minimum width=9cm, minimum height=7mm,
+                 font=\small, align=center},
+    dense/.style={draw, fill=violet!12, rounded corners=2pt,
+                  minimum width=9cm, minimum height=7mm,
+                  font=\small, align=center},
+    io/.style={draw, fill=gray!20, rounded corners=2pt,
+               minimum width=9cm, minimum height=7mm,
+               font=\small\bfseries, align=center},
+    add/.style={draw, circle, minimum size=6.5mm,
+                inner sep=0pt, fill=red!10, font=\normalsize},
+    arr/.style={-{Latex[length=2mm]}, thick},
+    skip/.style={-{Latex[length=2mm]}, dashed, blue!55, thick},
+]
+
+%% ---- nodes ----
+\node[io]   (inp)   {Input \quad $3 \times 256 \times 256$};
+
+\node[conv, below=of inp]  (b1c1) {Conv2d($3{\to}16$,\ $3{\times}3$,\ pad\,1) $+$ BN $+$ ReLU};
+\node[conv, below=of b1c1] (b1c2) {Conv2d($16{\to}16$,\ $3{\times}3$,\ pad\,1) $+$ BN $+$ ReLU};
+\node[add,  below=of b1c2] (b1a)  {$\oplus$};
+\node[pool, below=of b1a]  (b1p)  {MaxPool($2{\times}2$) $+$ Dropout2d \quad $\to\;16{\times}128{\times}128$};
+
+\node[conv, below=7mm of b1p] (b2c1) {Conv2d($16{\to}32$,\ $3{\times}3$,\ pad\,1) $+$ BN $+$ ReLU};
+\node[conv, below=of b2c1]    (b2c2) {Conv2d($32{\to}32$,\ $3{\times}3$,\ pad\,1) $+$ BN $+$ ReLU};
+\node[add,  below=of b2c2]    (b2a)  {$\oplus$};
+\node[pool, below=of b2a]     (b2p)  {MaxPool($2{\times}2$) $+$ Dropout2d \quad $\to\;32{\times}64{\times}64$};
+
+\node[io,    below=7mm of b2p] (flat) {Flatten \quad $\to\;131{,}072$ features};
+\node[dense, below=of flat]    (fc1)  {Linear($131{,}072{\to}64$) $+$ BN $+$ LeakyReLU($\alpha{=}0.2$) $+$ Dropout};
+\node[dense, below=of fc1]     (fc2)  {Linear($64{\to}1$) \quad logit};
+\node[io,    below=of fc2]     (out)  {$\sigma(\text{logit})>0.5 \;\Rightarrow\;$ \textsc{Attack}};
+
+%% ---- main-path arrows ----
+\foreach \a/\b in {inp/b1c1, b1c1/b1c2, b1c2/b1a, b1a/b1p,
+                   b2c1/b2c2, b2c2/b2a, b2a/b2p,
+                   flat/fc1, fc1/fc2, fc2/out}
+    \draw[arr] (\a) -- (\b);
+
+\draw[arr] (b1p) -- (b2c1);
+\draw[arr] (b2p) -- (flat);
+
+%% ---- skip connections (right side) ----
+\draw[skip]
+    (inp.east) -- ++(2.2,0)
+    |- node[pos=0.25, right, font=\scriptsize\itshape] {Conv1$\times$1 ($3{\to}16$)}
+    (b1a.east);
+
+\draw[skip]
+    (b1p.east) -- ++(2.2,0)
+    |- node[pos=0.25, right, font=\scriptsize\itshape] {Conv1$\times$1 ($16{\to}32$)}
+    (b2a.east);
+
+%% ---- block bounding boxes ----
+\begin{scope}[on background layer]
+    \node[draw=blue!45, dashed, rounded corners=5pt, inner sep=5pt,
+          label={[font=\small\bfseries, text=blue!60]left:Block 1},
+          fit=(b1c1)(b1c2)(b1a)(b1p)] {};
+    \node[draw=blue!45, dashed, rounded corners=5pt, inner sep=5pt,
+          label={[font=\small\bfseries, text=blue!60]left:Block 2},
+          fit=(b2c1)(b2c2)(b2a)(b2p)] {};
+\end{scope}
+
+\end{tikzpicture}
+\caption{AttackNet v2.2 architecture. Two \textsc{ResidualConvBlock}s (blue, dashed)
+each apply two $3{\times}3$ convolutions with batch normalisation and ReLU, followed
+by element-wise addition ($\oplus$) with a $1{\times}1$-projected skip connection,
+then MaxPool and Dropout2d. The dense head maps $131{,}072$ flattened features
+through a 64-unit bottleneck (LeakyReLU, $\alpha{=}0.2$) to a single logit;
+$\sigma(\text{logit})>0.5$ is the attack decision boundary.}
+\label{fig:architecture}
+\end{figure}
 
 \subsection{Output head and parameter budget}
 
@@ -511,7 +679,7 @@ by filtering the manifest on the \texttt{dataset} column.}
 \small
 \begin{tabular}{l l l}
 \toprule
-\texttt{--protocol} & \texttt{train\_datasets} & \texttt{val\_datasets} \\
+\texttt{protocol} & \texttt{train\_datasets} & \texttt{val\_datasets} \\
 \midrule
 \texttt{combined} & \{replay, 3dmad\} & \{replay, 3dmad\} \\
 \texttt{replay}   & \{replay\}        & \{replay\}        \\
@@ -602,11 +770,25 @@ interpret the larger combined-protocol training time as evidence that
 combined training is doing real learning work, not merely averaging
 two single-domain models.
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.85\linewidth]{cv_fold_spread.png}
-\caption{Per-fold ACER. 3DMAD's higher fold-to-fold variance reflects
-the small subject pool (only 17 people).}
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{cv_fold_spread.png}
+    \caption{Per-fold ACER across protocols.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{training_curves.png}
+    \caption{Validation ACER learning curves.}
+\end{subfigure}
+\caption{Cross-validation diagnostics. \emph{Left}: per-fold ACER;
+3DMAD shows higher fold-to-fold variance due to its small subject pool
+(17 subjects). \emph{Right}: validation ACER vs.\ epoch for the best
+fold of each protocol, illustrating that combined training converges
+more slowly but reaches a lower final error than either single-dataset
+baseline.}
 \label{fig:cv-fold-spread}
 \end{figure}
 
@@ -637,12 +819,24 @@ Replay   & $0{.}0000$ & $0{.}0000$ & $0{.}0000$ & $0{.}0000$ & $1{.}0000$ \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.85\linewidth]{within_dataset_bars.png}
-\caption{Within-dataset test ACER (bars) and APCER/BPCER decomposition.
-All three protocols are sub-$0{.}5\%$. The combined model is slightly
-behind the single-dataset models on each domain but covers both.}
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{within_dataset_bars.png}
+    \caption{ACER / APCER / BPCER decomposition.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{roc_within_dataset.png}
+    \caption{ROC curves on the test split.}
+\end{subfigure}
+\caption{Within-dataset test-set evaluation. All three protocols achieve
+sub-$0.5\%$ ACER and near-perfect ROC-AUC ($\geq 0.9999$), confirming
+that both Replay-Attack and 3DMAD are effectively solved at this regime.
+The combined model incurs a marginal within-domain cost relative to the
+single-dataset baselines.}
 \label{fig:within-bars}
 \end{figure}
 
@@ -691,12 +885,24 @@ Replay $\rightarrow$ 3DMAD & $0{.}6442$ & $0{.}0883$ & $0{.}1767$ & $0{.}0000$ \
 \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.85\linewidth]{cross_dataset_bars.png}
-\caption{Zero-shot cross-dataset error rates at the fixed-$0{.}5$
-threshold. The asymmetry is the headline finding: Replay
-$\rightarrow$ 3DMAD transfers; 3DMAD $\rightarrow$ Replay does not.}
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{cross_dataset_bars.png}
+    \caption{ACER / APCER / BPCER at threshold $0.5$.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{roc_cross_dataset.png}
+    \caption{ROC curves on the target test split.}
+\end{subfigure}
+\caption{Zero-shot cross-dataset evaluation. The sharp asymmetry is
+visible in both panels: Replay $\rightarrow$ 3DMAD produces a workable
+ROC curve and low ACER, while 3DMAD $\rightarrow$ Replay degrades
+severely. The ROC curves show that the 3DMAD model's score distribution
+is nearly uninformative for Replay attacks at any threshold.}
 \label{fig:cross-bars}
 \end{figure}
 
