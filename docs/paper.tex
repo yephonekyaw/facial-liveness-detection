@@ -109,10 +109,13 @@ Concretely, our contributions are:
    and zero-shot cross-dataset evaluation --- with both fixed-threshold
    and devel-calibrated HTER reporting.
 
-\item A forward-compatible manifest schema and extractor stub for
-   silicone mask attacks (CSMAD), which means that adding a third
-   dataset for an out-of-distribution probe is a configuration change,
-   not a refactor.
+\item A devel-calibrated out-of-distribution probe on CSMAD (silicone
+   mask attacks, Intel RealSense SR300), enabled by a forward-compatible
+   manifest schema that required no changes to the training code. The
+   probe reveals a ranking inversion (AUC $0{.}40$, HTER $0{.}58$):
+   the model scores genuine CSMAD faces as more attack-like than silicon
+   masks, demonstrating that sensor domain shift alone is sufficient to
+   break a PAD model worse than random.
 \end{enumerate}
 
 We make no architectural claim of novelty for AttackNet v2.2: the
@@ -164,71 +167,86 @@ of real users falsely rejected), and ACER as their mean.
 \section{Data Unification}
 \label{sec:data}
 
-\subsection{Why a single manifest}
+\subsection{Manifest Design}
 
-The two source datasets have nothing in common at the I/O layer. A
-training loop that opens \texttt{.mov} containers \emph{and} HDF5
-groups duplicates code, branches everywhere on dataset identity, and
-makes a third dataset cripplingly expensive to add. We therefore
-collapse both into one offline-computed artefact:
+Replay-Attack and 3DMAD share no common I/O interface: one delivers
+Motion-JPEG video containers, the other delivers HDF5 frame stacks
+with per-frame depth maps and eye-coordinate annotations. A training
+loop that handles both natively must branch on dataset identity
+throughout, which makes adding a third dataset expensive and error-prone.
+We therefore collapse all datasets into a single offline-computed
+artefact before any learning code runs:
 
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
-\item A directory of identically-shaped $256{\times}256$ RGB JPEG face
-   crops (\texttt{data/processed/<dataset>/<video\_id>\_<frame\_idx>.jpg}).
-\item One CSV manifest where each row is one crop, tagged with everything
-   downstream code needs.
+\item A flat directory of identically-shaped $256{\times}256$ RGB JPEG
+   face crops, organised as \texttt{data/processed/<dataset>/}.
+\item A single CSV manifest in which each row describes one crop and
+   carries all metadata required by training, evaluation, and analysis.
 \end{enumerate}
 
-The manifest schema is:
+Table~\ref{tab:schema} lists the manifest schema. The key design
+decisions are: (i) \texttt{subject\_id} is globally namespaced so
+subject-disjoint splitting requires no per-dataset logic; (ii)
+\texttt{attack\_type} carries sub-class labels so per-attack-type
+breakdowns are a single \texttt{groupby}; (iii) the training loop
+never inspects \texttt{dataset} --- it filters on \texttt{split} and
+\texttt{label} only, making it dataset-agnostic by construction.
 
-\begin{quote}\small\ttfamily
-path, label, dataset, source\_video, frame\_idx,\\
-split, subject\_id, attack\_type, lighting,\\
-face\_x, face\_y, face\_w, face\_h
-\end{quote}
+\begin{table}[h]
+\centering
+\caption{Manifest CSV schema. Each row describes one $256{\times}256$ face crop.}
+\label{tab:schema}
+\small
+\begin{tabular}{l p{0.62\linewidth}}
+\toprule
+Field & Description \\
+\midrule
+\texttt{path}           & Relative path to the JPEG crop \\
+\texttt{label}          & $0 =$ bonafide, $1 =$ attack \\
+\texttt{dataset}        & Source corpus: \texttt{replay}, \texttt{3dmad}, or \texttt{csmad} \\
+\texttt{source\_video}  & Video identifier used for video-level score aggregation \\
+\texttt{frame\_idx}     & Frame index within the source video \\
+\texttt{split}          & Partition: \texttt{train}, \texttt{devel}, or \texttt{test} \\
+\texttt{subject\_id}    & Globally namespaced subject (e.g.\ \texttt{replay\_001}, \texttt{3dmad\_07}, \texttt{csmad\_A}) \\
+\texttt{attack\_type}   & Sub-class: \texttt{print}, \texttt{mobile}, \texttt{highdef}, \texttt{video}, \texttt{mask3d}, \texttt{mask\_silicone}, or \texttt{real} \\
+\texttt{lighting}       & Lighting condition as reported by the source dataset \\
+\texttt{face\_x,y,w,h} & Detected face bounding box in pixels, before the $1.3{\times}$ expansion \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\noindent
-\texttt{label} encodes $0{=}\text{bonafide}$, $1{=}\text{attack}$;
-\texttt{dataset} is one of \texttt{replay}, \texttt{3dmad},
-\texttt{csmad}; \texttt{split} preserves each dataset's official
-train/devel/test partition; \texttt{attack\_type} carries
-sub-class information (\texttt{print}, \texttt{mobile},
-\texttt{highdef}, \texttt{video}, \texttt{mask3d},
-\texttt{mask\_silicone}); \texttt{subject\_id} is namespaced
-(\texttt{replay\_001}, \texttt{3dmad\_07}) so subject-disjoint
-splitting is straightforward across datasets. The training code never
-branches on dataset --- it filters the manifest, period.
-
-\subsection{Pipeline}
+\subsection{Preprocessing Pipeline}
 
 \begin{figure}[t]
 \centering
+\small
+\renewcommand{\arraystretch}{1.4}
 \begin{tabular}{c}
-\fbox{\parbox{0.92\linewidth}{\small\ttfamily
-\hphantom{xxxx} .mov / .h5 \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \\
-\hphantom{xxxxxxxx}$\downarrow$\\
-\hphantom{xx} extract\_replay / extract\_3dmad\\
-\hphantom{xxxxxxxx}$\downarrow$\\
-\hphantom{x} RetinaFace (insightface, buffalo\_sc, GPU)\\
-\hphantom{xxxxxxxx}$\downarrow$\\
-\hphantom{x} 1.3$\times$ expand $\rightarrow$ square $\rightarrow$ Lanczos $\rightarrow$ 256$\times$256\\
-\hphantom{xxxxxxxx}$\downarrow$\\
-\hphantom{x} JPEG q=95 \ \ + \ \ append manifest row\\
-}}
+\toprule
+Raw input: \texttt{.mov} containers (Replay-Attack) or \texttt{.h5} stacks (3DMAD, CSMAD) \\
+$\Downarrow$ \\
+Dataset-specific extractor; every $5$th frame sampled (\texttt{FRAME\_STRIDE} $= 5$) \\
+$\Downarrow$ \\
+RetinaFace face detector (\texttt{insightface buffalo\_sc}, ONNX, GPU) \\
+$\Downarrow$ \\
+Highest-confidence box $\xrightarrow{\;\times 1.3\;}$ square-pad to longer side $\xrightarrow{\;\text{Lanczos}\;}$ $256{\times}256$ \\
+$\Downarrow$ \\
+JPEG ($q{=}95$) written to \texttt{data/processed/} \quad$+$\quad row appended to \texttt{manifest.csv} \\
+\bottomrule
 \end{tabular}
-\caption{Unified preprocessing. A single detector and a single crop
-geometry are applied to both source datasets so that the downstream
-training loop sees one homogeneous distribution.}
+\caption{Unified preprocessing pipeline. A single shared detector and a
+fixed crop geometry are applied identically across all three datasets,
+ensuring that the training loop receives a homogeneous input distribution
+regardless of source format.}
 \label{fig:pipeline}
 \end{figure}
 
-We use RetinaFace as a single shared detector across both datasets ---
+We use RetinaFace as a single shared detector across all three datasets,
 specifically the lightweight \texttt{buffalo\_sc} bundle from
-\texttt{insightface}, which ships only the
-$\sim$14\,MB \texttt{det\_500m.onnx} detection model. Running it through
-\texttt{onnxruntime-gpu} sidesteps a separate compatibility headache
-on Pascal-class hardware. Per-video bounding-box detections are cached
-to disk so re-running the pipeline is free.
+\texttt{insightface} (${\sim}14$\,MB \texttt{det\_500m.onnx}), executed
+via \texttt{onnxruntime-gpu} for compatibility with Pascal-class hardware.
+Per-video bounding-box detections are cached to disk so that re-running
+the extractor incurs no additional detection cost.
 
 For each detected face we take the highest-confidence box, expand it
 by a factor of $1{+}0.3 = 1.3$ to capture peripheral context (hair,
@@ -240,13 +258,15 @@ actually carries; bilinear or area resampling smooths these cues
 out. We save as JPEG quality $95$ ($\sim$20\,KB per crop), striking a
 balance between disk footprint and texture preservation.
 
-\subsection{Splits, frame sampling, and modality}
+\subsection{Splits, Frame Sampling, and Modality}
 
 We sample every fifth frame ($\text{stride}=5$) from each source video.
-Adjacent frames are extremely similar; keeping them all costs roughly
-$3{\times}$ training time per epoch with no measurable benefit. The
-resulting count is $77{,}296$ crops across both datasets
-(Table~\ref{tab:class-distribution}).
+Adjacent frames in the source recordings are highly redundant; retaining
+all frames increases training time by approximately $3{\times}$ with no
+measurable benefit to validation accuracy. The resulting count is
+$77{,}296$ crops across the two training datasets
+(Table~\ref{tab:class-distribution}); CSMAD contributes a further
+$18{,}763$ crops used exclusively for the out-of-distribution probe.
 
 For Replay-Attack we follow the dataset's official train/devel/test
 partition. 3DMAD does not ship a canonical split, so we use a
