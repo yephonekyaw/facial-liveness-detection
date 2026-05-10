@@ -107,7 +107,7 @@ def plot_training_curves(cv_runs: dict) -> plt.Figure:
         ax_acer.grid(alpha=0.3)
         ax_loss.legend(fontsize=8)
 
-    fig.suptitle("Training Curves — 5-Fold CV", fontsize=13, y=1.01)
+    fig.suptitle("Training Curves — 5-Fold CV", fontsize=13)
     fig.tight_layout()
     return fig
 
@@ -259,7 +259,7 @@ def plot_within_dataset_bars(test_results: dict) -> plt.Figure:
         ax.grid(axis="y", alpha=0.3)
         ax.set_ylim(0, max(0.015, ax.get_ylim()[1] * 1.3))
 
-    fig.suptitle("Within-Dataset Test-Set Evaluation", fontsize=13, y=1.01)
+    fig.suptitle("Within-Dataset Test-Set Evaluation", fontsize=13)
     fig.tight_layout()
     return fig
 
@@ -312,7 +312,7 @@ def plot_cross_dataset_bars(test_results: dict) -> plt.Figure:
     ax.set_title("Devel-Calibrated Threshold")
     ax.grid(axis="y", alpha=0.3)
 
-    fig.suptitle("Cross-Dataset Generalisation", fontsize=13, y=1.01)
+    fig.suptitle("Cross-Dataset Generalisation", fontsize=13)
     fig.tight_layout()
     return fig
 
