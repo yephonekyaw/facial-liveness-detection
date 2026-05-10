@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      # model checkpoints (read-only — don't need to write from the container)
+      - ./outputs/checkpoints:/app/outputs/checkpoints:ro
+      # insightface detector cache — persisted so it's not re-downloaded on restart
+      - insightface_cache:/root/.insightface
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  insightface_cache:

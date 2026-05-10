@@ -1,0 +1,45 @@
+# Default training config for AttackNet v2.2 on the unified dataset.
+#
+# The learning rate (1e-6) is intentionally tiny as a starting point;
+# Optuna will re-explore it in Phase 6.
+
+seed: 42
+
+# --- Data ---
+image_size: 256
+# Which datasets to use for training and validation. The full list is
+# ['replay', '3dmad']. Restrict to one for cross-dataset experiments.
+train_datasets: [replay, 3dmad]
+val_datasets:   [replay, 3dmad]
+
+# --- Optimisation ---
+batch_size: 16             # fits 8GB VRAM
+eval_batch_size: 64        # no gradients = larger batches OK
+epochs: 30
+optimizer: adam            # 'adam' | 'adamw' | 'sgd'
+lr: 1.0e-6                 # tiny starting point; Optuna will tune
+weight_decay: 1.0e-5
+momentum: 0.9              # only used by sgd
+
+dropout: 0.05              # for both ResidualConvBlocks and the dense head
+label_smoothing: 0.1       # blend hard labels with 0.5 by this factor
+
+lr_scheduler:
+  type: reduce_on_plateau
+  factor: 0.5
+  patience: 5
+  min_lr: 1.0e-9
+
+early_stopping_patience: 10  # epochs without val-ACER improvement → stop
+
+# --- Mixed precision ---
+# fp16 storage halves activation memory on the GTX 1070. We keep the
+# loss/optimizer step in fp32 via GradScaler (the standard recipe).
+amp: true
+
+# --- DataLoader ---
+num_workers: 4
+pin_memory: true
+
+# --- Logging / checkpointing ---
+run_name: null             # null = auto from timestamp + protocol

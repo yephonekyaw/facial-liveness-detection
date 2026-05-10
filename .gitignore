@@ -1,0 +1,34 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Project-specific (large or generated)
+ref/
+raw/
+data/processed/
+data/face_cache/
+outputs/
+*.pt
+*.pth
+*.onnx
+optuna.db
+optuna.db-journal
+
+# Gradio
+.gradio/
+
+# Jupyter
+.ipynb_checkpoints/
+.jupyter/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
