@@ -399,14 +399,17 @@ def parse_overrides(args: argparse.Namespace, cfg: TrainConfig) -> TrainConfig:
         cfg.dropout = args.dropout
     if args.protocol is not None:
         if args.protocol == "combined":
-            cfg.train_datasets = ["replay", "3dmad"]
-            cfg.val_datasets = ["replay", "3dmad"]
+            cfg.train_datasets = ["replay", "3dmad", "csmad"]
+            cfg.val_datasets = ["replay", "3dmad", "csmad"]
         elif args.protocol == "replay":
             cfg.train_datasets = ["replay"]
             cfg.val_datasets = ["replay"]
         elif args.protocol == "3dmad":
             cfg.train_datasets = ["3dmad"]
             cfg.val_datasets = ["3dmad"]
+        elif args.protocol == "csmad":
+            cfg.train_datasets = ["csmad"]
+            cfg.val_datasets = ["csmad"]
         else:
             raise ValueError(f"unknown protocol: {args.protocol!r}")
     if args.run_name is not None:

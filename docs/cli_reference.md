@@ -22,7 +22,7 @@ uv run python main.py preprocess --dataset {replay,3dmad,csmad,all}
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--dataset` | *(required)* | Which dataset to process. `all` runs replay + 3dmad. |
+| `--dataset` | *(required)* | Which dataset to process. `all` runs replay + 3dmad + csmad. |
 | `--limit N` | None | Cap number of videos to process (useful for smoke tests). |
 
 Examples:
@@ -50,7 +50,7 @@ uv run python main.py train [options]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--config PATH` | `configs/default.yaml` | Path to YAML config file. |
-| `--protocol` | None | Shorthand: `combined` (replay+3dmad), `replay`, or `3dmad`. Overrides `train_datasets`/`val_datasets` in config. |
+| `--protocol` | None | Shorthand: `combined` (replay+3dmad+csmad), `replay`, `3dmad`, or `csmad`. Overrides `train_datasets`/`val_datasets` in config. |
 | `--epochs N` | 30 | Total training epochs. |
 | `--batch-size N` | 16 | Training batch size. |
 | `--lr FLOAT` | 1e-6 | Learning rate. |
@@ -100,7 +100,7 @@ uv run python main.py train-cv [options]
 |------|---------|-------------|
 | `--config PATH` | `configs/default.yaml` | Path to YAML config file. |
 | `--n-folds N` | 5 | Number of folds. |
-| `--protocol` | None | `combined`, `replay`, or `3dmad`. |
+| `--protocol` | None | `combined`, `replay`, `3dmad`, or `csmad`. |
 | `--epochs N` | 30 | Max epochs per fold. |
 | `--batch-size N` | 16 | Training batch size. |
 | `--lr FLOAT` | 1e-6 | Learning rate. |
@@ -153,7 +153,7 @@ uv run python main.py tune [options]
 | `--n-trials N` | 30 | Number of Optuna trials to run. |
 | `--epochs-per-trial N` | 15 | Max epochs per trial (pruner may cut short). |
 | `--study-name STR` | `attacknet_v22` | Optuna study name (for DB grouping). |
-| `--protocol` | None | `combined`, `replay`, or `3dmad`. |
+| `--protocol` | None | `combined`, `replay`, `3dmad`, or `csmad`. |
 | `--no-amp` | False | Disable mixed-precision training. |
 
 Search space:
@@ -267,8 +267,8 @@ The full set of config keys:
 ```yaml
 seed: 42
 image_size: 256
-train_datasets: [replay, 3dmad]
-val_datasets:   [replay, 3dmad]
+train_datasets: [replay, 3dmad, csmad]
+val_datasets:   [replay, 3dmad, csmad]
 batch_size: 16
 eval_batch_size: 64
 epochs: 30
@@ -295,6 +295,7 @@ sets both `train_datasets` and `val_datasets`:
 
 | `--protocol` | `train_datasets` | `val_datasets` |
 |---|---|---|
-| `combined` | `[replay, 3dmad]` | `[replay, 3dmad]` |
+| `combined` | `[replay, 3dmad, csmad]` | `[replay, 3dmad, csmad]` |
 | `replay` | `[replay]` | `[replay]` |
 | `3dmad` | `[3dmad]` | `[3dmad]` |
+| `csmad` | `[csmad]` | `[csmad]` |

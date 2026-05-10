@@ -8,9 +8,9 @@ seed: 42
 # --- Data ---
 image_size: 256
 # Which datasets to use for training and validation. The full list is
-# ['replay', '3dmad']. Restrict to one for cross-dataset experiments.
-train_datasets: [replay, 3dmad]
-val_datasets:   [replay, 3dmad]
+# ['replay', '3dmad', 'csmad']. Restrict to one for single-protocol experiments.
+train_datasets: [replay, 3dmad, csmad]
+val_datasets:   [replay, 3dmad, csmad]
 
 # --- Optimisation ---
 batch_size: 16             # fits 8GB VRAM

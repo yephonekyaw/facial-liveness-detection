@@ -1,97 +1,73 @@
-"""Run all test-set evaluations and save results to a JSON file.
+"""Run every (model, test-set) evaluation pair and save results to JSON.
 
-Evaluations:
-1. Within-dataset: best CV fold checkpoint → test split (same dataset)
-   - combined (both-cv-5/fold_1) → test on [replay, 3dmad]
-   - replay  (replay-cv-5/fold_0) → test on [replay]
-   - 3dmad   (3dmad-cv-5/fold_0)  → test on [3dmad]
+Models (single-run checkpoints under outputs/checkpoints/):
+  - both    → trained on replay + 3dmad
+  - replay  → trained on replay only
+  - 3dmad   → trained on 3dmad only
 
-2. Cross-dataset: single-run checkpoints → test split (other dataset)
-   - replay/best.pt  → test on [3dmad]
-   - 3dmad/best.pt   → test on [replay]
+Test sets (test split of the manifest):
+  - replay
+  - 3dmad
+  - csmad
+  - combined  (replay + 3dmad + csmad together)
 
-3. Cross-dataset with devel-calibrated threshold (eval-cross):
-   - replay/best.pt  → devel+test on [3dmad]
-   - 3dmad/best.pt   → devel+test on [replay]
+For each (model, test-set) pair we record:
+  1. Raw test metrics at the default 0.5 threshold (`evaluate_split`).
+  2. Devel-calibrated HTER metrics (`evaluate_cross`) — threshold picked on
+     the devel split of the same test set, then applied to test.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.training.eval_runner import evaluate_cross, evaluate_split
 
 CKPT_DIR = Path("outputs/checkpoints")
 OUT_PATH = Path("outputs/test_eval_results.json")
 
+MODELS = {
+    "both":   CKPT_DIR / "both"   / "best.pt",
+    "replay": CKPT_DIR / "replay" / "best.pt",
+    "3dmad":  CKPT_DIR / "3dmad"  / "best.pt",
+}
+
+TEST_SETS = {
+    "replay":   ["replay"],
+    "3dmad":    ["3dmad"],
+    "csmad":    ["csmad"],
+    "combined": ["replay", "3dmad", "csmad"],
+}
+
 
 def main():
-    results = {}
+    results = {"raw": {}, "calibrated": {}}
 
-    # --- 1. Within-dataset test evals (best CV fold) ---
-    within = {
-        "combined": {
-            "ckpt": CKPT_DIR / "both-cv-5" / "fold_1" / "best.pt",
-            "datasets": ["replay", "3dmad"],
-        },
-        "replay": {
-            "ckpt": CKPT_DIR / "replay-cv-5" / "fold_0" / "best.pt",
-            "datasets": ["replay"],
-        },
-        "3dmad": {
-            "ckpt": CKPT_DIR / "3dmad-cv-5" / "fold_0" / "best.pt",
-            "datasets": ["3dmad"],
-        },
-    }
-    results["within_dataset"] = {}
-    for name, spec in within.items():
-        print(f"\n{'='*60}")
-        print(f"  WITHIN-DATASET TEST: {name}")
-        print(f"{'='*60}")
-        r = evaluate_split(
-            ckpt_path=spec["ckpt"],
-            split="test",
-            eval_datasets=spec["datasets"],
-        )
-        results["within_dataset"][name] = r
+    for model_name, ckpt in MODELS.items():
+        results["raw"][model_name] = {}
+        results["calibrated"][model_name] = {}
 
-    # --- 2. Cross-dataset test evals (single-run models) ---
-    # Use the single-run models (not CV folds) because they were trained
-    # on the standard train split, so devel calibration is clean.
-    cross_split = {
-        "replay_to_3dmad": {
-            "ckpt": CKPT_DIR / "replay" / "best.pt",
-            "datasets": ["3dmad"],
-        },
-        "3dmad_to_replay": {
-            "ckpt": CKPT_DIR / "3dmad" / "best.pt",
-            "datasets": ["replay"],
-        },
-    }
-    results["cross_dataset_raw"] = {}
-    for name, spec in cross_split.items():
-        print(f"\n{'='*60}")
-        print(f"  CROSS-DATASET TEST (fixed threshold): {name}")
-        print(f"{'='*60}")
-        r = evaluate_split(
-            ckpt_path=spec["ckpt"],
-            split="test",
-            eval_datasets=spec["datasets"],
-        )
-        results["cross_dataset_raw"][name] = r
+        for test_name, datasets in TEST_SETS.items():
+            print(f"\n{'='*60}")
+            print(f"  RAW  | model={model_name}  test={test_name}")
+            print(f"{'='*60}")
+            results["raw"][model_name][test_name] = evaluate_split(
+                ckpt_path=ckpt,
+                split="test",
+                eval_datasets=datasets,
+            )
 
-    # --- 3. Cross-dataset with devel-calibrated threshold ---
-    results["cross_dataset_calibrated"] = {}
-    for name, spec in cross_split.items():
-        print(f"\n{'='*60}")
-        print(f"  CROSS-DATASET (devel-calibrated HTER): {name}")
-        print(f"{'='*60}")
-        r = evaluate_cross(
-            ckpt_path=spec["ckpt"],
-            eval_datasets=spec["datasets"],
-        )
-        results["cross_dataset_calibrated"][name] = r
+            print(f"\n{'='*60}")
+            print(f"  CALIBRATED  | model={model_name}  test={test_name}")
+            print(f"{'='*60}")
+            results["calibrated"][model_name][test_name] = evaluate_cross(
+                ckpt_path=ckpt,
+                eval_datasets=datasets,
+            )
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(results, indent=2, default=str))

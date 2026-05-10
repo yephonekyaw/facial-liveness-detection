@@ -12,8 +12,7 @@ wheels/
 # Project-specific (large or generated)
 ref/
 raw/
-data/processed/
-data/face_cache/
+data/
 outputs/
 *.pt
 *.pth

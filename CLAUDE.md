@@ -41,7 +41,7 @@ ref/                Dataset descriptions and reference PDFs
 uv run python main.py preprocess --dataset {replay,3dmad,csmad,all} [--limit N]
 
 # Training
-uv run python main.py train [--config PATH] [--protocol {combined,replay,3dmad}] [overrides]
+uv run python main.py train [--config PATH] [--protocol {combined,replay,3dmad,csmad}] [overrides]
 uv run python main.py train-cv [--n-folds 5] [--protocol ...]
 
 # Hyperparameter search
@@ -84,7 +84,7 @@ HDF5 path layout: `data/sr300/{color,infrared,depth,aligned_color_to_depth}` and
 
 Structure: `bonafide/` (87 videos + 17 still JPGs), `attack/WEAR/` (108 videos), `attack/STAND/` (51 videos).
 
-**CSMAD is held out as a cross-dataset test corpus.** All extracted frames are assigned `split='test'` regardless of subject, because attack files only cover subjects A–F (all train subjects), making a letter-based split impossible. The attack archive uses two filename conventions across subfolders — `extract_csmad.py` handles both.
+CSMAD is now split by subject into train / devel / test (A,B,G,H,I / C,D,J,K / E,F,L,M,N) so it can be used either alongside the other corpora during training or as a stand-alone evaluation set. The attack archive uses two filename conventions across subfolders — `extract_csmad.py` handles both.
 
 ## Model
 
@@ -110,7 +110,7 @@ Bounding-box results are cached per video in `data/face_cache/` to avoid re-runn
 ## Training notes
 
 - Config lives in `configs/default.yaml`; per-protocol configs can override it
-- `--protocol combined` sets `train_datasets: [replay, 3dmad]`
+- `--protocol combined` sets `train_datasets: [replay, 3dmad, csmad]`
 - Checkpoints: `outputs/checkpoints/<run_name>/best.pt` (best val-ACER) + `last.pt`
 - `history.json` alongside each checkpoint logs per-epoch metrics
 - Optuna study name defaults to `attacknet_v22`; trials prune on plateau

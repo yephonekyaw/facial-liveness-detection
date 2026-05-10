@@ -7,11 +7,12 @@ import numpy as np
 import torch
 
 from src.preprocessing.face_pipeline import FaceDetector, crop_and_resize, expand_to_square
+from src.preprocessing.enhance import enhance_frame
 from src.training.eval_runner import load_model
 from src.data.transforms import eval_transform
 from src.config import CHECKPOINT_DIR
 
-DEFAULT_CKPT = CHECKPOINT_DIR / "both-cv-5" / "fold_1" / "best.pt"
+DEFAULT_CKPT = CHECKPOINT_DIR / "both" / "best.pt"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
@@ -38,6 +39,7 @@ def predict(image_rgb: np.ndarray):
 
     box_sq = expand_to_square(box, bgr.shape)
     crop_bgr = crop_and_resize(bgr, box_sq, size=256)
+    crop_bgr = enhance_frame(crop_bgr)
 
     transformed = transform(image=crop_bgr)
     x = transformed["image"].unsqueeze(0).to(device)

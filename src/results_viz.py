@@ -225,8 +225,12 @@ def plot_roc_cross(ckpt_dir: Path) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def plot_within_dataset_bars(test_results: dict) -> plt.Figure:
-    """Grouped bar chart: ACER, APCER, BPCER for each within-dataset protocol."""
-    protocols = ["combined", "replay", "3dmad"]
+    """Grouped bar chart: ACER, APCER, BPCER for each (model, within-domain test set).
+
+    The new JSON layout is `raw[model][test_set]`. We show each model on
+    its training distribution: Combined→combined, Replay→replay, 3DMAD→3dmad.
+    """
+    pairs = [("both", "combined"), ("replay", "replay"), ("3dmad", "3dmad")]
     labels = ["Combined", "Replay", "3DMAD"]
     colors = ["#2196F3", "#FF9800", "#4CAF50"]
 
@@ -240,8 +244,8 @@ def plot_within_dataset_bars(test_results: dict) -> plt.Figure:
         x = np.arange(len(metrics))
         width = 0.25
 
-        for i, (proto, label, color) in enumerate(zip(protocols, labels, colors)):
-            r = test_results["within_dataset"][proto][level]
+        for i, ((model, test_set), label, color) in enumerate(zip(pairs, labels, colors)):
+            r = test_results["raw"][model][test_set][level]
             vals = [r[m] for m in metrics]
             bars = ax.bar(x + i * width, vals, width, label=label, color=color)
             for bar in bars:
@@ -265,8 +269,13 @@ def plot_within_dataset_bars(test_results: dict) -> plt.Figure:
 
 
 def plot_cross_dataset_bars(test_results: dict) -> plt.Figure:
-    """Side-by-side bar chart showing the cross-dataset asymmetry."""
-    directions = ["replay_to_3dmad", "3dmad_to_replay"]
+    """Side-by-side bar chart showing the cross-dataset asymmetry.
+
+    New JSON layout: `raw[model][test_set]` and `calibrated[model][test_set]`.
+    Cross-dataset directions: Replay→3DMAD = raw["replay"]["3dmad"];
+    3DMAD→Replay = raw["3dmad"]["replay"].
+    """
+    directions = [("replay", "3dmad"), ("3dmad", "replay")]
     dir_labels = ["Replay → 3DMAD", "3DMAD → Replay"]
     colors = ["#FF9800", "#4CAF50"]
 
@@ -279,8 +288,8 @@ def plot_cross_dataset_bars(test_results: dict) -> plt.Figure:
     ax = axes[0]
     x = np.arange(len(metrics))
     width = 0.35
-    for i, (d, dl, c) in enumerate(zip(directions, dir_labels, colors)):
-        r = test_results["cross_dataset_raw"][d]["frame"]
+    for i, ((src, tgt), dl, c) in enumerate(zip(directions, dir_labels, colors)):
+        r = test_results["raw"][src][tgt]["frame"]
         vals = [r[m] for m in metrics]
         bars = ax.bar(x + i * width, vals, width, label=dl, color=c)
         for bar in bars:
@@ -299,9 +308,8 @@ def plot_cross_dataset_bars(test_results: dict) -> plt.Figure:
 
     # Devel-calibrated HTER
     ax = axes[1]
-    hter_vals = []
-    for d in directions:
-        hter_vals.append(test_results["cross_dataset_calibrated"][d]["hter"])
+    hter_vals = [test_results["calibrated"][src][tgt]["hter"]
+                 for src, tgt in directions]
     bars = ax.bar(dir_labels, hter_vals, color=colors, width=0.5)
     for bar in bars:
         h = bar.get_height()

@@ -2,7 +2,7 @@
 
 Subcommands:
     preprocess  --dataset {replay,3dmad,csmad,all} [--limit N]
-    train       [--config PATH] [--protocol {combined,replay,3dmad}] [overrides...]
+    train       [--config PATH] [--protocol {combined,replay,3dmad,csmad}] [overrides...]
     train-cv    [--config PATH] [--n-folds 5] [--protocol ...] [overrides...]
     eval        --checkpoint PATH [--split {train,devel,test}] [--datasets ...]
     tune        [--n-trials 30] [--epochs 15] [--protocol ...]
@@ -28,7 +28,7 @@ def cmd_preprocess(args: argparse.Namespace) -> None:
     if args.dataset in ("3dmad", "all"):
         from src.preprocessing import extract_3dmad
         extract_3dmad.run(limit=args.limit)
-    if args.dataset == "csmad":
+    if args.dataset in ("csmad", "all"):
         from src.preprocessing import extract_csmad
         extract_csmad.run(limit=args.limit)
 
@@ -122,7 +122,7 @@ def main() -> None:
     tr = sub.add_parser("train", help="train AttackNet v2.2")
     tr.add_argument("--config", type=str, default=None,
                     help="path to YAML config (default: configs/default.yaml)")
-    tr.add_argument("--protocol", choices=["combined", "replay", "3dmad"], default=None,
+    tr.add_argument("--protocol", choices=["combined", "replay", "3dmad", "csmad"], default=None,
                     help="shorthand for setting train+val datasets")
     tr.add_argument("--epochs", type=int, default=None)
     tr.add_argument("--batch-size", type=int, default=None)
@@ -139,7 +139,7 @@ def main() -> None:
     cv.add_argument("--config", type=str, default=None,
                     help="path to YAML config (default: configs/default.yaml)")
     cv.add_argument("--n-folds", type=int, default=5)
-    cv.add_argument("--protocol", choices=["combined", "replay", "3dmad"], default=None,
+    cv.add_argument("--protocol", choices=["combined", "replay", "3dmad", "csmad"], default=None,
                     help="shorthand for setting train+val datasets")
     cv.add_argument("--epochs", type=int, default=None)
     cv.add_argument("--batch-size", type=int, default=None)
@@ -159,7 +159,7 @@ def main() -> None:
                     help="max epochs per trial (pruner may cut short)")
     tu.add_argument("--study-name", type=str, default="attacknet_v22",
                     help="Optuna study name (for DB grouping)")
-    tu.add_argument("--protocol", choices=["combined", "replay", "3dmad"], default=None,
+    tu.add_argument("--protocol", choices=["combined", "replay", "3dmad", "csmad"], default=None,
                     help="shorthand for setting train+val datasets")
     tu.add_argument("--run-name", type=str, default=None)
     tu.add_argument("--no-amp", action="store_true", help="disable mixed precision")
