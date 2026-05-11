@@ -12,7 +12,7 @@ from src.training.eval_runner import load_model
 from src.data.transforms import eval_transform
 from src.config import CHECKPOINT_DIR
 
-DEFAULT_CKPT = CHECKPOINT_DIR / "all_best" / "best.pt"
+DEFAULT_CKPT = CHECKPOINT_DIR / "all_three" / "best.pt"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
