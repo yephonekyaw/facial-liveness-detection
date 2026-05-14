@@ -23,6 +23,10 @@ optuna.db-journal
 # Gradio
 .gradio/
 
+# LaTeX (generated PDF + local tectonic binary)
+docs/paper.pdf
+/tectonic
+
 # Jupyter
 .ipynb_checkpoints/
 .jupyter/
